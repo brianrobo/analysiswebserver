@@ -100,3 +100,5 @@ temp/
 data/
 uploads/
 results/
+postgresql-16-installer.exe
+*.exe

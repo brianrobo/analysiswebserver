@@ -45,35 +45,68 @@ POCUtilWebServer/
 
 ## 빠른 시작
 
-### 개발 환경 실행
+### 1. PostgreSQL 설치
+
+먼저 PostgreSQL을 설치하고 데이터베이스를 생성하세요:
+
+**상세 가이드:** [POSTGRESQL_SETUP.md](POSTGRESQL_SETUP.md)
+
+```bash
+# 요약:
+# 1. PostgreSQL 16 설치 (https://www.postgresql.org/download/windows/)
+# 2. 데이터베이스 생성 (analysisdb)
+# 3. 비밀번호 설정 (postgres123 권장 - 개발용)
+```
+
+### 2. 백엔드 실행
+
+```bash
+cd backend
+
+# 의존성 설치 (최초 1회)
+poetry install
+
+# FastAPI 서버 시작
+poetry run uvicorn api.main:app --reload
+```
+
+성공 메시지:
+```
+✓ Analysis Tool API v1.0.0 started
+✓ Database initialized
+✓ API docs available at: /api/docs
+INFO: Uvicorn running on http://127.0.0.1:8000
+```
+
+### 3. API 테스트
+
+**Swagger UI (권장):**
+- http://127.0.0.1:8000/api/docs
+
+**테스트 스크립트:**
+```bash
+cd backend
+poetry run python test_api.py
+```
+
+### 프론트엔드 (Phase 4에서 구현 예정)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Docker 환경 (Phase 5에서 구성 예정)
 
 ```bash
 # 전체 스택 실행
 docker-compose up -d
 
-# 로그 확인
-docker-compose logs -f
-
 # 접속
 # Frontend: http://localhost:5173
 # Backend API: http://localhost:8000
 # API Docs: http://localhost:8000/docs
-```
-
-### 로컬 개발
-
-**백엔드:**
-```bash
-cd backend
-poetry install
-poetry run uvicorn api.main:app --reload
-```
-
-**프론트엔드:**
-```bash
-cd frontend
-npm install
-npm run dev
 ```
 
 ## 구현 계획
@@ -83,28 +116,54 @@ npm run dev
 ### 구현 단계
 
 - [x] Phase 0: GitHub 레포지토리 초기화
-- [ ] Phase 1: FastAPI 백엔드 기반 구축
-- [ ] Phase 2: PyQt 분석 로직 통합
+- [x] **Phase 1: FastAPI 백엔드 기반 구축** ✅
+- [ ] Phase 2: PyQt 분석 로직 통합 (다음 단계 🚧)
 - [ ] Phase 3: REST API 및 WebSocket 개발
 - [ ] Phase 4: React SPA 프론트엔드 개발
 - [ ] Phase 5: Docker 환경 구성
 - [ ] Phase 6: 통합 테스트 및 검증
 
+### Phase 1 완료 사항 ✅
+
+**구현된 기능:**
+- ✅ Poetry 프로젝트 초기화 및 의존성 설치
+- ✅ FastAPI 핵심 파일 (config, security, dependencies)
+- ✅ 데이터베이스 모델 5개 (User, Team, UserSettings, AnalysisJob, AnalysisResult)
+- ✅ 인증 API (회원가입, 로그인, 사용자 정보)
+- ✅ 설정 API (테마, 워크스페이스, 유틸 설정 관리)
+- ✅ Pydantic 스키마 정의
+- ✅ JWT 인증 시스템 (Argon2 해싱)
+
+**문서:**
+- 📄 [PHASE1_SUMMARY.md](PHASE1_SUMMARY.md) - 완료 내역 상세
+- 📄 [POSTGRESQL_SETUP.md](POSTGRESQL_SETUP.md) - PostgreSQL 설치 가이드
+
+**⚠️ 다음 단계:** PostgreSQL 설치 후 서버 시작 및 테스트
+
 ## API 엔드포인트
 
-### 인증
-- `POST /api/v1/auth/login` - 로그인
+### 인증 (✅ 구현됨)
 - `POST /api/v1/auth/register` - 회원가입
+- `POST /api/v1/auth/login` - 로그인 (OAuth2 Form)
+- `POST /api/v1/auth/login/json` - 로그인 (JSON)
 - `GET /api/v1/auth/me` - 현재 사용자 정보
 
-### 분석
+### 설정 (✅ 구현됨)
+- `GET /api/v1/settings` - 사용자 설정 조회
+- `PATCH /api/v1/settings` - 사용자 설정 업데이트 (부분)
+- `PATCH /api/v1/settings/theme?theme=<light|dark>` - 테마 변경
+- `PATCH /api/v1/settings/workspace` - 워크스페이스 상태 저장
+- `PATCH /api/v1/settings/tool-preferences` - 유틸별 설정 저장
+- `POST /api/v1/settings/recent-tool/{tool_id}` - 최근 사용 유틸 추가
+
+### 분석 (Phase 3에서 구현 예정)
 - `POST /api/v1/analysis/upload` - 파일 업로드
 - `POST /api/v1/analysis/start` - 분석 시작
 - `GET /api/v1/analysis/{job_id}/status` - 상태 조회
 - `GET /api/v1/analysis/{job_id}/result` - 결과 다운로드
 - `GET /api/v1/analysis/history` - 이력 조회
 
-### WebSocket
+### WebSocket (Phase 3에서 구현 예정)
 - `WS /ws/analysis/{job_id}` - 실시간 진행률
 
 ## 개발 가이드
