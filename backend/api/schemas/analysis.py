@@ -16,23 +16,21 @@ class AnalysisJobBase(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-class AnalysisJobCreate(AnalysisJobBase):
-    """Schema for creating an analysis job"""
-    input_file_name: str
+class AnalysisJobCreate(BaseModel):
+    """Schema for creating an analysis job from local path"""
+    path: str = Field(..., description="Local file system path to analyze")
+    job_name: Optional[str] = Field(None, max_length=200)
 
 
-class AnalysisJobResponse(AnalysisJobBase):
+class AnalysisJobResponse(BaseModel):
     """Schema for analysis job response"""
     id: int
-    user_id: int
-    status: JobStatus
+    job_name: str
+    status: str
     progress: int = Field(ge=0, le=100)
-    error_message: Optional[str] = None
-    input_file_name: str
-    output_file_path: Optional[str] = None
     created_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    message: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -55,12 +53,22 @@ class AnalysisJobStatusUpdate(BaseModel):
 
 class AnalysisResultResponse(BaseModel):
     """Schema for analysis result response"""
-    id: int
     job_id: int
+    job_name: str
     result_data: dict[str, Any]
-    summary: Optional[str] = None
-    processing_time_seconds: Optional[int] = None
-    records_processed: Optional[int] = None
+    summary: Optional[dict[str, Any]] = None
+    processing_time: Optional[float] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnalysisHistoryResponse(BaseModel):
+    """Schema for analysis history item"""
+    id: int
+    job_name: str
+    status: str
+    input_file: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

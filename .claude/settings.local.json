@@ -5,7 +5,17 @@
       "Bash(git commit:*)",
       "Bash(gh:*)",
       "Bash(git config:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(poetry:*)",
+      "Bash(pip install:*)",
+      "Bash(curl:*)",
+      "Bash(choco:*)",
+      "Bash(./postgresql-16-installer.exe --mode unattended --superpassword \"postgres123\" --serverport 5432)",
+      "Bash(psql:*)",
+      "Bash(docker:*)",
+      "Bash(python:*)"
     ]
   }
 }
