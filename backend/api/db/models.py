@@ -147,10 +147,10 @@ class AnalysisResult(Base):
 
     # Result Data
     result_data = Column(JSON, nullable=False)  # Structured result data
-    summary = Column(Text, nullable=True)  # Human-readable summary
+    summary = Column(JSON, nullable=True)  # Summary dictionary
 
     # Statistics
-    processing_time_seconds = Column(Integer, nullable=True)  # Time taken to process
+    processing_time = Column(Integer, nullable=True)  # Time taken to process (seconds)
     records_processed = Column(Integer, nullable=True)  # Number of records processed
 
     # Timestamps
@@ -158,3 +158,26 @@ class AnalysisResult(Base):
 
     # Relationships
     job = relationship("AnalysisJob", back_populates="result")
+
+
+class AnalysisSharing(Base):
+    """Team sharing for analysis results"""
+    __tablename__ = "analysis_sharing"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(Integer, ForeignKey("analysis_jobs.id"), nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    shared_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Permission flags
+    can_view = Column(Boolean, default=True, nullable=False)
+    can_download = Column(Boolean, default=True, nullable=False)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)  # NULL = no expiration
+
+    # Relationships
+    job = relationship("AnalysisJob")
+    team = relationship("Team")
+    shared_by = relationship("User", foreign_keys=[shared_by_user_id])

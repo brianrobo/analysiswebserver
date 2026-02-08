@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Backgro
 from sqlalchemy.orm import Session
 from typing import Optional
 from api.core.dependencies import get_current_user, get_db
+from api.core.cache import cache
+from api.core.websocket_manager import manager as ws_manager
 from api.db.models import User, AnalysisJob, AnalysisResult
 from api.schemas.analysis import (
     AnalysisJobCreate,
@@ -12,9 +14,15 @@ from api.schemas.analysis import (
     AnalysisResultResponse,
     AnalysisHistoryResponse,
 )
+from api.schemas.sharing import (
+    ShareRequest,
+    ShareResponse,
+    SharedAnalysisResponse,
+)
 from analysis import AnalysisEngine
 from analysis.processors.file_processor import FileProcessor
 from analysis.processors.path_processor import PathProcessor
+from api.services.sharing_service import sharing_service
 from datetime import datetime
 import json
 from pathlib import Path
@@ -41,16 +49,21 @@ async def run_analysis_background(
         return
 
     try:
+        # Update status: running (10%)
         job.status = "running"
         job.progress = 10
         db.commit()
+        await cache.set_progress(job_id, 10, "running", "Starting analysis...")
+        await ws_manager.send_progress_update(job_id, 10, "running", "Starting analysis...")
 
         # Run analysis
         result = await analysis_engine.analyze_project(project_path, project_name)
 
-        # Save result to database
+        # Save result to database (90%)
         job.progress = 90
         db.commit()
+        await cache.set_progress(job_id, 90, "running", "Saving results...")
+        await ws_manager.send_progress_update(job_id, 90, "running", "Saving results...")
 
         analysis_result = AnalysisResult(
             job_id=job_id,
@@ -61,15 +74,36 @@ async def run_analysis_background(
         )
         db.add(analysis_result)
 
-        # Update job
+        # Update job: completed (100%)
         job.status = "completed"
         job.progress = 100
         db.commit()
+        await cache.set_progress(job_id, 100, "completed", "Analysis completed")
+        await ws_manager.send_progress_update(job_id, 100, "completed", "Analysis completed")
+
+        # Cache the result
+        result_dict = {
+            "job_id": job.id,
+            "job_name": job.job_name,
+            "result_data": result.model_dump(),
+            "summary": result.analysis_summary,
+            "processing_time": analysis_result.processing_time,
+            "created_at": analysis_result.created_at.isoformat() if analysis_result.created_at else None,
+        }
+        await cache.set_analysis_result(job_id, result_dict)
+
+        # Send completion notification via WebSocket
+        await ws_manager.send_completion(job_id, result.analysis_summary)
+
+        # Invalidate user history cache
+        await cache.invalidate_user_history(job.user_id)
 
     except Exception as e:
         job.status = "failed"
         job.error_message = str(e)
         db.commit()
+        await cache.set_progress(job_id, job.progress, "failed", f"Error: {str(e)}")
+        await ws_manager.send_error(job_id, str(e))
 
 
 @router.post("/upload", response_model=AnalysisJobResponse)
@@ -229,14 +263,33 @@ async def get_analysis_result(
     db: Session = Depends(get_db),
 ):
     """
-    Get analysis result
+    Get analysis result (with Redis caching + team sharing support)
 
     Returns complete analysis report with suggestions
+
+    **Authorization**: Owner or team member with can_view permission
     """
-    job = db.query(AnalysisJob).filter(
-        AnalysisJob.id == job_id,
-        AnalysisJob.user_id == current_user.id,
-    ).first()
+    # Check access (owner or shared)
+    has_access = sharing_service.check_access(
+        db=db,
+        job_id=job_id,
+        user=current_user,
+        require_download=False  # Only need view permission
+    )
+
+    if not has_access:
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to view this analysis"
+        )
+
+    # Check cache first
+    cached_result = await cache.get_analysis_result(job_id)
+    if cached_result:
+        return AnalysisResultResponse(**cached_result)
+
+    # Cache miss - query database
+    job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
 
     if not job:
         raise HTTPException(status_code=404, detail="Analysis job not found")
@@ -254,14 +307,20 @@ async def get_analysis_result(
     if not result:
         raise HTTPException(status_code=404, detail="Analysis result not found")
 
-    return AnalysisResultResponse(
-        job_id=job.id,
-        job_name=job.job_name,
-        result_data=result.result_data,
-        summary=result.summary,
-        processing_time=result.processing_time,
-        created_at=result.created_at,
-    )
+    # Build response
+    result_dict = {
+        "job_id": job.id,
+        "job_name": job.job_name,
+        "result_data": result.result_data,
+        "summary": result.summary,
+        "processing_time": result.processing_time,
+        "created_at": result.created_at,
+    }
+
+    # Cache for next time
+    await cache.set_analysis_result(job_id, result_dict)
+
+    return AnalysisResultResponse(**result_dict)
 
 
 @router.get("/history", response_model=list[AnalysisHistoryResponse])
@@ -272,11 +331,18 @@ async def get_analysis_history(
     db: Session = Depends(get_db),
 ):
     """
-    Get analysis history for current user
+    Get analysis history for current user (with caching for first page)
 
     - **limit**: Maximum number of results (default: 20)
     - **offset**: Offset for pagination (default: 0)
     """
+    # Cache only first page (offset=0)
+    if offset == 0:
+        cached_history = await cache.get_user_history(current_user.id)
+        if cached_history:
+            return [AnalysisHistoryResponse(**item) for item in cached_history[:limit]]
+
+    # Query database
     jobs = (
         db.query(AnalysisJob)
         .filter(AnalysisJob.user_id == current_user.id)
@@ -298,6 +364,11 @@ async def get_analysis_history(
             )
         )
 
+    # Cache first page
+    if offset == 0 and history:
+        history_dict = [item.model_dump() for item in history]
+        await cache.set_user_history(current_user.id, history_dict)
+
     return history
 
 
@@ -308,7 +379,7 @@ async def delete_analysis(
     db: Session = Depends(get_db),
 ):
     """
-    Delete an analysis job and its results
+    Delete an analysis job and its results (invalidates cache)
 
     - **job_id**: Analysis job ID
     """
@@ -327,9 +398,149 @@ async def delete_analysis(
     db.delete(job)
     db.commit()
 
+    # Invalidate caches
+    await cache.invalidate_analysis_result(job_id)
+    await cache.invalidate_user_history(current_user.id)
+
     # Cleanup uploaded files if exists
     if job.parameters and "upload_id" in job.parameters:
         upload_id = job.parameters["upload_id"]
         file_processor.cleanup_upload(current_user.id, upload_id)
 
     return {"message": "Analysis deleted successfully"}
+
+
+@router.get("/stats")
+async def get_analysis_stats(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get analysis statistics and cache performance
+
+    Returns cache hit rate and other metrics
+    """
+    stats = await cache.get_cache_stats()
+
+    return {
+        "cache_stats": stats,
+        "message": "Cache statistics retrieved successfully"
+    }
+
+
+# ==================== Team Sharing Endpoints ====================
+
+@router.post("/{job_id}/share", response_model=ShareResponse)
+async def share_analysis_with_team(
+    job_id: int,
+    request: ShareRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Share analysis with a team
+
+    **Requirements**:
+    - User must be TeamLead or Admin
+    - User must own the analysis
+    - Team must exist
+
+    **Permissions**:
+    - `can_view`: Allow team members to view analysis results
+    - `can_download`: Allow team members to download results (JSON/CSV/ZIP)
+    - `expires_at`: Optional expiration timestamp (NULL = no expiration)
+
+    **Note**: If already shared, this will update the permissions
+    """
+    try:
+        sharing = sharing_service.share_with_team(
+            db=db,
+            job_id=job_id,
+            team_id=request.team_id,
+            user=current_user,
+            can_view=request.can_view,
+            can_download=request.can_download,
+            expires_at=request.expires_at
+        )
+
+        return ShareResponse(
+            job_id=sharing.job_id,
+            team_id=sharing.team_id,
+            shared_by_user_id=sharing.shared_by_user_id,
+            can_view=sharing.can_view,
+            can_download=sharing.can_download,
+            created_at=sharing.created_at,
+            expires_at=sharing.expires_at
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sharing failed: {str(e)}")
+
+
+@router.delete("/{job_id}/share/{team_id}")
+async def unshare_analysis_with_team(
+    job_id: int,
+    team_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Remove team sharing for an analysis
+
+    **Authorization**:
+    - Analysis owner
+    - Admin
+    - Team's Team Lead
+    """
+    try:
+        success = sharing_service.unshare_with_team(
+            db=db,
+            job_id=job_id,
+            team_id=team_id,
+            user=current_user
+        )
+
+        if success:
+            return {"message": "Analysis unshared successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Sharing not found")
+
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unsharing failed: {str(e)}")
+
+
+@router.get("/shared-with-me", response_model=list[SharedAnalysisResponse])
+async def get_shared_analyses(
+    limit: int = 20,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get analyses shared with user's team
+
+    Returns analyses that:
+    - Are shared with user's team
+    - User doesn't own (no duplicates with /history)
+    - Haven't expired yet
+
+    **Pagination**: Use limit/offset for pagination
+    """
+    try:
+        shared = sharing_service.get_shared_analyses(
+            db=db,
+            user=current_user,
+            limit=limit,
+            offset=offset
+        )
+
+        return [SharedAnalysisResponse(**item) for item in shared]
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve shared analyses: {str(e)}"
+        )
