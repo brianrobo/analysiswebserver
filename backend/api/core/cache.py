@@ -35,7 +35,7 @@ class RedisCache:
         self.TTL_HISTORY = int(timedelta(minutes=5).total_seconds())
 
     async def connect(self):
-        """Initialize Redis connection pool"""
+        """Initialize Redis connection pool (falls back to in-memory fakeredis if unavailable)"""
         if self._redis is None:
             try:
                 self._redis = await aioredis.from_url(
@@ -44,10 +44,18 @@ class RedisCache:
                     decode_responses=True,
                     max_connections=10
                 )
+                # Test connection
+                await self._redis.ping()
                 logger.info("Redis connection established")
             except Exception as e:
-                logger.error(f"Failed to connect to Redis: {e}")
-                self._redis = None
+                logger.warning(f"Redis unavailable ({e}), using in-memory fakeredis")
+                try:
+                    import fakeredis.aioredis as fakeredis_async
+                    self._redis = fakeredis_async.FakeRedis(decode_responses=True)
+                    logger.info("Fakeredis (in-memory) initialized as Redis fallback")
+                except ImportError:
+                    logger.error("fakeredis not installed. Cache disabled.")
+                    self._redis = None
 
     async def disconnect(self):
         """Close Redis connection"""
@@ -56,10 +64,10 @@ class RedisCache:
             logger.info("Redis connection closed")
 
     @property
-    def redis(self) -> Redis:
+    def redis(self):
         """Get Redis client, raise if not connected"""
         if self._redis is None:
-            raise RuntimeError("Redis not connected. Call connect() first.")
+            raise RuntimeError("Redis not connected and fakeredis unavailable.")
         return self._redis
 
     # ============ Analysis Result Caching ============

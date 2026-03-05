@@ -8,7 +8,7 @@ import asyncio
 import logging
 
 from api.core.websocket_manager import manager
-from api.core.security import verify_token
+from api.core.security import decode_access_token
 from api.core.cache import cache
 from api.core.dependencies import get_db
 from api.db.models import User, AnalysisJob
@@ -25,10 +25,14 @@ async def get_current_user_ws(token: str = Query(...), db: Session = Depends(get
     WebSocket doesn't support headers easily, so we use query parameter
     """
     try:
-        payload = verify_token(token)
-        user_id = int(payload.get("sub"))
+        payload = decode_access_token(token)
+        if payload is None:
+            return None
+        email: Optional[str] = payload.get("sub")
+        if not email:
+            return None
 
-        user = db.query(User).filter(User.id == user_id).first()
+        user = db.query(User).filter(User.email == email).first()
         return user
     except Exception as e:
         logger.error(f"WebSocket authentication failed: {e}")
