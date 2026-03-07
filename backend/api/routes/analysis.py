@@ -136,7 +136,8 @@ async def upload_file(
             job_name=job_name or f"Analysis of {file.filename}",
             status="pending",
             progress=0,
-            input_file=file.filename,
+            input_file_path=upload_info["extracted_path"],
+            input_file_name=file.filename,
             parameters={"upload_id": upload_info["upload_id"]},
         )
         db.add(job)
@@ -194,7 +195,8 @@ async def analyze_from_path(
             job_name=request.job_name or f"Analysis of {Path(request.path).name}",
             status="pending",
             progress=0,
-            input_file=request.path,
+            input_file_path=path_info["path"],
+            input_file_name=Path(request.path).name,
             parameters={"local_path": True},
         )
         db.add(job)
@@ -359,7 +361,7 @@ async def get_analysis_history(
                 id=job.id,
                 job_name=job.job_name,
                 status=job.status,
-                input_file=job.input_file,
+                input_file=job.input_file_name,
                 created_at=job.created_at,
             )
         )
