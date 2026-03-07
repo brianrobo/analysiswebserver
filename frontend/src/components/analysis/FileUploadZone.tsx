@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { Upload, File, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -28,15 +29,23 @@ export function FileUploadZone({ onFileSelect, selectedFile, onClear }: FileUplo
     e.preventDefault()
     setIsDragging(false)
     const file = e.dataTransfer.files[0]
-    if (file && validateFile(file)) {
-      onFileSelect(file)
+    if (file) {
+      if (validateFile(file)) {
+        onFileSelect(file)
+      } else {
+        toast.error('.py 또는 .zip 파일만 업로드 가능합니다.')
+      }
     }
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file && validateFile(file)) {
-      onFileSelect(file)
+    if (file) {
+      if (validateFile(file)) {
+        onFileSelect(file)
+      } else {
+        toast.error('.py 또는 .zip 파일만 업로드 가능합니다.')
+      }
     }
   }
 
@@ -47,7 +56,9 @@ export function FileUploadZone({ onFileSelect, selectedFile, onClear }: FileUplo
         <div className="flex-1 min-w-0">
           <p className="font-medium truncate">{selectedFile.name}</p>
           <p className="text-sm text-muted-foreground">
-            {(selectedFile.size / 1024).toFixed(1)} KB
+            {selectedFile.size >= 1024 * 1024
+              ? `${(selectedFile.size / 1024 / 1024).toFixed(1)} MB`
+              : `${(selectedFile.size / 1024).toFixed(1)} KB`}
           </p>
         </div>
         <Button variant="ghost" size="icon" onClick={onClear}>

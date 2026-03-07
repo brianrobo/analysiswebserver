@@ -28,6 +28,8 @@ export function useLogin() {
   return useMutation({
     mutationFn: async ({ email, password }: { email: string; password: string }) => {
       const token = await authApi.login(email, password)
+      // Store token immediately so subsequent API calls include Authorization header
+      localStorage.setItem('access_token', token.access_token)
       const user = await authApi.me()
       const settings = await settingsApi.get()
       return { token, user, settings }
