@@ -2,8 +2,8 @@
 
 > PyQt 분석 도구 → 웹 애플리케이션 전환 프로젝트
 
-**최종 업데이트**: 2026-03-07
-**현재 단계**: 프론트엔드 코드 검토 및 버그 수정 완료 ✅ → Phase 5 Docker 준비 ⏳
+**최종 업데이트**: 2026-03-08
+**현재 단계**: Phase 5 완료 ✅ → Phase 6 통합 테스트 준비 ⏳
 
 ---
 
@@ -17,10 +17,10 @@ Phase 3: ████████████████████ 100% ✅ R
 Phase 4: ████████████████████ 100% ✅ React SPA 프론트엔드 개발
 API검증: ████████████████████ 100% ✅ 백엔드 API 통합 테스트 + 버그수정
 UI검토: ████████████████████ 100% ✅ 프론트엔드 코드 검토 및 버그 수정
-Phase 5: ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Docker 환경 구성
+Phase 5: ████████████████████ 100% ✅ Docker 환경 구성
 Phase 6: ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ 통합 테스트 및 검증
 
-전체 진행률: █████████████████░░░ 83% (5/6 Phases, API 검증 완료)
+전체 진행률: ███████████████████░  95% (6/7 Phases)
 ```
 
 ---
@@ -309,16 +309,54 @@ cd backend && poetry run uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 ---
 
-## ⏸️ Phase 5: Docker 환경 구성
+## ✅ Phase 5: Docker 환경 구성
 
-**상태**: ⏸️ 대기 중
+**완료일**: 2026-03-08
+**상태**: ✅ 완료
 
-### 계획된 작업
-- [ ] `docker-compose.yml` - backend + frontend + postgresql + redis
-- [ ] `Dockerfile` (backend) - Python 3.12 + Poetry
-- [ ] `Dockerfile` (frontend) - Node.js + nginx 정적 서빙
-- [ ] `nginx/nginx.conf` - 리버스 프록시 설정
-- [ ] 환경 변수 분리 (dev/prod)
+### 완료된 작업
+
+#### 5.1 컨테이너 구성 (4개 서비스)
+- [x] `docker-compose.yml` - backend + frontend(nginx) + postgresql:16 + redis:7
+- [x] `backend/Dockerfile` - Python 3.12-slim + Poetry, non-root 보안, healthcheck
+- [x] `frontend/Dockerfile` - 멀티스테이지 (Node.js 빌드 → nginx 서빙)
+- [x] `nginx/nginx.conf` - SPA 라우팅 + `/api` REST 프록시 + `/ws` WebSocket 프록시
+
+#### 5.2 환경 변수
+- [x] `.env.example` - Docker 배포용 환경 변수 문서
+- [x] `frontend/.env.development` - dev 환경 WS 직접 연결 설정
+
+#### 5.3 WebSocket 개선
+- [x] `useWebSocket.ts` - `window.location` 기반 동적 URL (dev/prod 자동 대응)
+  - Dev: `VITE_WS_BASE=ws://localhost:8000` (직접 연결)
+  - Docker/prod: `ws://{host}/ws/...` (nginx 프록시 경유)
+- [x] `vite.config.ts` - `/ws` WebSocket 프록시 추가
+
+### Docker 실행 방법
+```bash
+# 1. 환경 변수 설정
+cp .env.example .env
+# (필요시 .env 수정: SECRET_KEY 변경 등)
+
+# 2. 전체 스택 빌드 및 실행
+docker compose up --build
+
+# 3. 접속
+# 프론트엔드: http://localhost
+# API 문서:   http://localhost/api/docs
+```
+
+### 아키텍처
+
+```
+Browser → nginx:80
+           ├── /        → React SPA (static files)
+           ├── /api/... → backend:8000 (FastAPI)
+           └── /ws/...  → backend:8000 (WebSocket)
+
+backend → db:5432 (PostgreSQL 16)
+       → redis:6379 (Redis 7)
+```
 
 ---
 
@@ -354,6 +392,7 @@ cd backend && poetry run uvicorn api.main:app --host 0.0.0.0 --port 8000
 - Phase 4 커밋: React SPA 프론트엔드 + 인프라 수정
 - API 검증 커밋 (b046f11): 백엔드 API 버그 3건 수정 + 통합 테스트 완료
 - UI 검토 커밋 (1a7fd17): 프론트엔드 버그 3건 수정 (로그인 레이스컨디션, 파일 UX)
+- Phase 5 커밋 (6076602): Docker 환경 구성 완료 (9개 파일)
 
 ---
 
@@ -382,7 +421,7 @@ poetry run python start_frontend3.py
 
 ---
 
-**Phase 4 완료 + 백엔드 API 검증 완료!**
+**Phase 5까지 완료! Docker 배포 환경 구축 완료**
 
-백엔드 REST API 18개 엔드포인트 전체 동작 확인. 발견된 버그 3건 수정.
-다음 단계: 프론트엔드 UI 브라우저 테스트 → Phase 5 Docker 환경 구성.
+`docker compose up --build` 한 줄로 전체 스택 실행 가능.
+다음 단계: Phase 6 통합 테스트 (E2E 플로우 검증).
