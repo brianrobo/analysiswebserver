@@ -32,8 +32,12 @@ export function useWebSocket(
       wsRef.current.close()
     }
 
-    // Direct WebSocket connection (not through Vite proxy - more reliable on Windows)
-    const wsUrl = `ws://localhost:8000/ws/analysis/${jobId}?token=${token}`
+    // Derive WebSocket URL from current host so it works in both dev and production (Docker/nginx)
+    // Dev: VITE_WS_BASE=ws://localhost:8000 (direct, bypasses Vite proxy for reliability)
+    // Production: relative to window.location (goes through nginx /ws proxy)
+    const wsBase = import.meta.env.VITE_WS_BASE as string | undefined
+      ?? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
+    const wsUrl = `${wsBase}/ws/analysis/${jobId}?token=${token}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 

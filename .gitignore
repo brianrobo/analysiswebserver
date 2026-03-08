@@ -67,6 +67,9 @@ dist-ssr/
 .env.test.local
 .env.production.local
 
+# Docker
+.docker/
+
 # Logs
 *.log
 logs/
